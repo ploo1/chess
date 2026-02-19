@@ -1,0 +1,680 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Шахматы с папой онлайн</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: Arial, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 10px;
+        }
+        h1 { color: white; margin: 10px 0; font-size: 24px; text-align: center; }
+        .dad-message {
+            background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+            color: white;
+            padding: 20px 30px;
+            border-radius: 15px;
+            margin-bottom: 15px;
+            font-size: 22px;
+            font-weight: bold;
+            text-align: center;
+            box-shadow: 0 6px 12px rgba(0,0,0,0.2);
+            animation: pulse 2s ease-in-out infinite;
+        }
+        @keyframes pulse {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.05); }
+        }
+        .room-info {
+            background: white;
+            padding: 15px;
+            border-radius: 10px;
+            margin-bottom: 10px;
+            text-align: center;
+            max-width: 100%;
+        }
+        .room-code {
+            font-size: 24px;
+            font-weight: bold;
+            color: #667eea;
+            margin: 10px 0;
+        }
+        button {
+            background: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 8px;
+            font-size: 16px;
+            cursor: pointer;
+            margin: 5px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+        button:disabled { opacity: 0.6; cursor: not-allowed; }
+        .status {
+            background: white;
+            padding: 10px 20px;
+            border-radius: 10px;
+            margin-bottom: 10px;
+            font-size: 18px;
+            font-weight: bold;
+            text-align: center;
+        }
+        .check-alert {
+            background: #ff4444;
+            color: white;
+            padding: 10px;
+            border-radius: 8px;
+            margin-bottom: 10px;
+            font-weight: bold;
+            animation: blink 1s infinite;
+        }
+        @keyframes blink {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.7; }
+        }
+        .checkmate-alert {
+            background: #ff0000;
+            color: white;
+            padding: 20px;
+            border-radius: 15px;
+            margin-bottom: 15px;
+            font-size: 24px;
+            font-weight: bold;
+            text-align: center;
+            box-shadow: 0 6px 12px rgba(0,0,0,0.3);
+        }
+        .board {
+            display: grid;
+            grid-template-columns: repeat(8, 1fr);
+            gap: 0;
+            border: 3px solid #333;
+            border-radius: 5px;
+            max-width: 100vw;
+            aspect-ratio: 1;
+            width: 100%;
+            max-width: 400px;
+        }
+        .cell {
+            aspect-ratio: 1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: clamp(24px, 8vw, 40px);
+            cursor: pointer;
+            user-select: none;
+        }
+        .white { background: #f0d9b5; }
+        .black { background: #b58863; }
+        .selected { background: #7b61ff !important; }
+        .valid-move { background: #90EE90 !important; }
+        .in-check { background: #ff6b6b !important; }
+        input {
+            padding: 10px;
+            font-size: 16px;
+            border-radius: 5px;
+            border: 2px solid #ddd;
+            margin: 5px;
+            text-align: center;
+            text-transform: uppercase;
+        }
+        @media (max-width: 400px) {
+            .cell { font-size: 28px; }
+            .dad-message { font-size: 18px; padding: 15px 20px; }
+        }
+    </style>
+</head>
+<body>
+    <h1>♟️ ШАХМАТЫ С ПАПОЙ ♟️</h1>
+    <div class="dad-message">❤️ Пап, давай сыграем в шахматы! ❤️</div>
+    
+    <div id="gameAlerts"></div>
+    
+    <div class="room-info" id="roomSection">
+        <h3>Создать или присоединиться к игре</h3>
+        <button onclick="createRoom()">🎮 Создать комнату</button>
+        <br><br>
+        <input type="text" id="roomInput" placeholder="Код комнаты" maxlength="6">
+        <button onclick="joinRoom()">🔗 Присоединиться</button>
+    </div>
+    
+    <div class="status" id="status">Ожидание...</div>
+    <div class="board" id="board"></div>
+
+    <script src="https://www.gstatic.com/firebasejs/9.0.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.0.0/firebase-database-compat.js"></script>
+    
+    <script>
+        const firebaseConfig = {
+            apiKey: "AIzaSyALZnPwbUASl4wBa5q8XWKnH7k7JFUxDPc",
+            authDomain: "chess-with-dad.firebaseapp.com",
+            databaseURL: "https://chess-with-dad-default-rtdb.firebaseio.com",
+            projectId: "chess-with-dad",
+            storageBucket: "chess-with-dad.firebasestorage.app",
+            messagingSenderId: "1065127986870",
+            appId: "1:1065127986870:web:67656d8d6d3859a1348817"
+        };
+        
+        firebase.initializeApp(firebaseConfig);
+        const database = firebase.database();
+        
+        let roomId = null;
+        let playerColor = null;
+        let board = [];
+        let selectedCell = null;
+        let currentTurn = 'white';
+        let gameStarted = false;
+        let validMoves = [];
+        let lastMove = null; // Для взятия на проходе
+        let gameOver = false;
+        
+        const pieces = {
+            'K': '♔', 'Q': '♕', 'R': '♖', 'B': '♗', 'N': '♘', 'P': '♙',
+            'k': '♚', 'q': '♛', 'r': '♜', 'b': '♝', 'n': '♞', 'p': '♟'
+        };
+        
+        const initialBoard = [
+            ['r','n','b','q','k','b','n','r'],
+            ['p','p','p','p','p','p','p','p'],
+            ['','','','','','','',''],
+            ['','','','','','','',''],
+            ['','','','','','','',''],
+            ['','','','','','','',''],
+            ['P','P','P','P','P','P','P','P'],
+            ['R','N','B','Q','K','B','N','R']
+        ];
+        
+        // ✅ ПРОВЕРКА ПРАВИЛЬНОСТИ ХОДА
+        function isValidMove(fromRow, fromCol, toRow, toCol, boardState, checkEnPassant = true) {
+            const piece = boardState[fromRow][fromCol];
+            if (!piece) return false;
+            
+            const targetPiece = boardState[toRow][toCol];
+            const isWhite = piece === piece.toUpperCase();
+            const isTargetWhite = targetPiece && targetPiece === targetPiece.toUpperCase();
+            
+            if (targetPiece && isWhite === isTargetWhite) return false;
+            
+            const pieceType = piece.toLowerCase();
+            const rowDiff = toRow - fromRow;
+            const colDiff = toCol - fromCol;
+            const absRowDiff = Math.abs(rowDiff);
+            const absColDiff = Math.abs(colDiff);
+            
+            switch(pieceType) {
+                case 'p':
+                    return isValidPawnMove(fromRow, fromCol, toRow, toCol, piece, boardState, checkEnPassant);
+                case 'r':
+                    return isValidRookMove(fromRow, fromCol, toRow, toCol, boardState);
+                case 'n':
+                    return (absRowDiff === 2 && absColDiff === 1) || (absRowDiff === 1 && absColDiff === 2);
+                case 'b':
+                    return isValidBishopMove(fromRow, fromCol, toRow, toCol, boardState);
+                case 'q':
+                    return isValidRookMove(fromRow, fromCol, toRow, toCol, boardState) || 
+                           isValidBishopMove(fromRow, fromCol, toRow, toCol, boardState);
+                case 'k':
+                    return absRowDiff <= 1 && absColDiff <= 1;
+                default:
+                    return false;
+            }
+        }
+        
+        function isValidPawnMove(fromRow, fromCol, toRow, toCol, piece, boardState, checkEnPassant) {
+            const direction = piece === 'P' ? -1 : 1;
+            const startRow = piece === 'P' ? 6 : 1;
+            const targetPiece = boardState[toRow][toCol];
+            
+            // Ход вперёд на 1 клетку
+            if (toCol === fromCol && toRow === fromRow + direction && !targetPiece) {
+                return true;
+            }
+            
+            // Ход вперёд на 2 клетки с начальной позиции
+            if (toCol === fromCol && fromRow === startRow && 
+                toRow === fromRow + 2 * direction && 
+                !targetPiece && !boardState[fromRow + direction][fromCol]) {
+                return true;
+            }
+            
+            // Взятие по диагонали
+            if (Math.abs(toCol - fromCol) === 1 && toRow === fromRow + direction && targetPiece) {
+                const isTargetWhite = targetPiece === targetPiece.toUpperCase();
+                const isPieceWhite = piece === piece.toUpperCase();
+                if (isTargetWhite !== isPieceWhite) {
+                    return true;
+                }
+            }
+            
+            // ✅ ВЗЯТИЕ НА ПРОХОДЕ (En Passant)
+            if (checkEnPassant && lastMove && Math.abs(toCol - fromCol) === 1 && toRow === fromRow + direction) {
+                const lastPiece = boardState[lastMove.toRow][lastMove.toCol];
+                if (lastPiece && lastPiece.toLowerCase() === 'p') {
+                    if (lastMove.fromRow === (piece === 'P' ? 6 : 1) && 
+                        lastMove.toRow === (piece === 'P' ? 4 : 3) &&
+                        lastMove.toCol === toCol &&
+                        lastMove.toRow === fromRow) {
+                        return true;
+                    }
+                }
+            }
+            
+            return false;
+        }
+        
+        function isValidRookMove(fromRow, fromCol, toRow, toCol, boardState) {
+            if (fromRow !== toRow && fromCol !== toCol) return false;
+            return isPathClear(fromRow, fromCol, toRow, toCol, boardState);
+        }
+        
+        function isValidBishopMove(fromRow, fromCol, toRow, toCol, boardState) {
+            if (Math.abs(toRow - fromRow) !== Math.abs(toCol - fromCol)) return false;
+            return isPathClear(fromRow, fromCol, toRow, toCol, boardState);
+        }
+        
+        function isPathClear(fromRow, fromCol, toRow, toCol, boardState) {
+            const rowStep = fromRow === toRow ? 0 : (toRow > fromRow ? 1 : -1);
+            const colStep = fromCol === toCol ? 0 : (toCol > fromCol ? 1 : -1);
+            
+            let row = fromRow + rowStep;
+            let col = fromCol + colStep;
+            
+            while (row !== toRow || col !== toCol) {
+                if (boardState[row][col]) return false;
+                row += rowStep;
+                col += colStep;
+            }
+            return true;
+        }
+        
+        // ✅ НАЙТИ КОРОЛЯ
+        function findKing(boardState, isWhite) {
+            const king = isWhite ? 'K' : 'k';
+            for (let row = 0; row < 8; row++) {
+                for (let col = 0; col < 8; col++) {
+                    if (boardState[row][col] === king) {
+                        return { row, col };
+                    }
+                }
+            }
+            return null;
+        }
+        
+        // ✅ ПРОВЕРКА: КОРОЛЬ ПОД ШАХОМ
+        function isKingInCheck(boardState, isWhite) {
+            const kingPos = findKing(boardState, isWhite);
+            if (!kingPos) return false;
+            
+            for (let row = 0; row < 8; row++) {
+                for (let col = 0; col < 8; col++) {
+                    const piece = boardState[row][col];
+                    if (!piece) continue;
+                    
+                    const pieceIsWhite = piece === piece.toUpperCase();
+                    if (pieceIsWhite === isWhite) continue;
+                    
+                    if (canAttack(row, col, kingPos.row, kingPos.col, boardState)) {
+                        return true;
+                    }
+                }
+            }
+            return false;
+        }
+        
+        // ✅ МОЖЕТ ЛИ ФИГУРА АТАКОВАТЬ КЛЕТКУ
+        function canAttack(fromRow, fromCol, toRow, toCol, boardState) {
+            const piece = boardState[fromRow][fromCol];
+            if (!piece) return false;
+            
+            const pieceType = piece.toLowerCase();
+            const rowDiff = toRow - fromRow;
+            const colDiff = toCol - fromCol;
+            const absRowDiff = Math.abs(rowDiff);
+            const absColDiff = Math.abs(colDiff);
+            
+            switch(pieceType) {
+                case 'p':
+                    const direction = piece === 'P' ? -1 : 1;
+                    return toRow === fromRow + direction && absColDiff === 1;
+                case 'r':
+                    return isValidRookMove(fromRow, fromCol, toRow, toCol, boardState);
+                case 'n':
+                    return (absRowDiff === 2 && absColDiff === 1) || (absRowDiff === 1 && absColDiff === 2);
+                case 'b':
+                    return isValidBishopMove(fromRow, fromCol, toRow, toCol, boardState);
+                case 'q':
+                    return isValidRookMove(fromRow, fromCol, toRow, toCol, boardState) || 
+                           isValidBishopMove(fromRow, fromCol, toRow, toCol, boardState);
+                case 'k':
+                    return absRowDiff <= 1 && absColDiff <= 1;
+                default:
+                    return false;
+            }
+        }
+        
+        // ✅ ПРОВЕРКА: МАТ ИЛИ ПАТ
+        function checkGameState(boardState, isWhiteTurn) {
+            const hasValidMove = hasAnyValidMove(boardState, isWhiteTurn);
+            const inCheck = isKingInCheck(boardState, isWhiteTurn);
+            
+            if (!hasValidMove) {
+                if (inCheck) {
+                    return 'checkmate';
+                } else {
+                    return 'stalemate';
+                }
+            }
+            
+            if (inCheck) {
+                return 'check';
+            }
+            
+            return 'playing';
+        }
+        
+        // ✅ ЕСТЬ ЛИ ХОТЯ БЫ ОДИН ДОПУСТИМЫЙ ХОД
+        function hasAnyValidMove(boardState, isWhite) {
+            for (let fromRow = 0; fromRow < 8; fromRow++) {
+                for (let fromCol = 0; fromCol < 8; fromCol++) {
+                    const piece = boardState[fromRow][fromCol];
+                    if (!piece) continue;
+                    
+                    const pieceIsWhite = piece === piece.toUpperCase();
+                    if (pieceIsWhite !== isWhite) continue;
+                    
+                    for (let toRow = 0; toRow < 8; toRow++) {
+                        for (let toCol = 0; toCol < 8; toCol++) {
+                            if (isValidMove(fromRow, fromCol, toRow, toCol, boardState, false)) {
+                                // Симулируем ход
+                                const newBoard = simulateMove(boardState, fromRow, fromCol, toRow, toCol);
+                                // Проверяем, не остаётся ли король под шахом
+                                if (!isKingInCheck(newBoard, isWhite)) {
+                                    return true;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            return false;
+        }
+        
+        // ✅ СИМУЛИРОВАТЬ ХОД (для проверки шаха)
+        function simulateMove(boardState, fromRow, fromCol, toRow, toCol) {
+            const newBoard = boardState.map(row => [...row]);
+            newBoard[toRow][toCol] = newBoard[fromRow][fromCol];
+            newBoard[fromRow][fromCol] = '';
+            
+            // Превращение пешки
+            const piece = newBoard[toRow][toCol];
+            if (piece === 'P' && toRow === 0) newBoard[toRow][toCol] = 'Q';
+            if (piece === 'p' && toRow === 7) newBoard[toRow][toCol] = 'q';
+            
+            return newBoard;
+        }
+        
+        function createRoom() {
+            roomId = Math.random().toString(36).substring(2, 8).toUpperCase();
+            playerColor = 'white';
+            
+            database.ref('rooms/' + roomId).set({
+                board: JSON.parse(JSON.stringify(initialBoard)),
+                currentTurn: 'white',
+                players: { white: 'host', black: null },
+                lastMove: null,
+                gameOver: false,
+                createdAt: firebase.database.ServerValue.TIMESTAMP
+            });
+            
+            document.getElementById('roomSection').innerHTML = `
+                <h3>✅ Комната создана!</h3>
+                <div class="room-code">🔑 Код: ${roomId}</div>
+                <p>Отправьте этот код папе 👇</p>
+                <p><small>Ожидание второго игрока...</small></p>
+            `;
+            gameStarted = true;
+            listenToGame();
+        }
+        
+        function joinRoom() {
+            const code = document.getElementById('roomInput').value.trim().toUpperCase();
+            if (!code) { alert('Введите код комнаты!'); return; }
+            
+            roomId = code;
+            playerColor = 'black';
+            
+            database.ref('rooms/' + roomId + '/players/black').set('joined')
+                .then(() => {
+                    database.ref('rooms/' + roomId + '/players/white').set('host');
+                    document.getElementById('roomSection').innerHTML = `
+                        <h3>✅ Вы в игре!</h3>
+                        <div class="room-code">🔑 Комната: ${roomId}</div>
+                        <p>Вы играете за ⚫ чёрных</p>
+                    `;
+                    gameStarted = true;
+                    listenToGame();
+                })
+                .catch(() => {
+                    alert('Комната не найдена! Проверьте код.');
+                });
+        }
+        
+        function listenToGame() {
+            database.ref('rooms/' + roomId).on('value', (snapshot) => {
+                const data = snapshot.val();
+                if (data && data.board) {
+                    board = data.board;
+                    currentTurn = data.currentTurn;
+                    lastMove = data.lastMove;
+                    gameOver = data.gameOver || false;
+                    renderBoard();
+                    updateStatus();
+                    checkGameEnd();
+                }
+            });
+        }
+        
+        function makeMove(fromRow, fromCol, toRow, toCol) {
+            if (!gameStarted || !roomId || gameOver) return;
+            if ((playerColor === 'white' && currentTurn !== 'white') ||
+                (playerColor === 'black' && currentTurn !== 'black')) {
+                return;
+            }
+            
+            const piece = board[fromRow][fromCol];
+            if (!piece) return;
+            
+            if (!isValidMove(fromRow, fromCol, toRow, toCol, board)) {
+                alert('❌ Недопустимый ход!');
+                return;
+            }
+            
+            const newBoard = board.map(row => [...row]);
+            
+            // ✅ ВЗЯТИЕ НА ПРОХОДЕ
+            const isEnPassant = lastMove && 
+                               piece.toLowerCase() === 'p' && 
+                               Math.abs(toCol - fromCol) === 1 &&
+                               !newBoard[toRow][toCol] &&
+                               lastMove.toRow === fromRow &&
+                               lastMove.toCol === toCol;
+            
+            if (isEnPassant) {
+                newBoard[lastMove.toRow][lastMove.toCol] = '';
+            }
+            
+            newBoard[toRow][toCol] = newBoard[fromRow][fromCol];
+            newBoard[fromRow][fromCol] = '';
+            
+            // Превращение пешки
+            if (newBoard[toRow][toCol] === 'P' && toRow === 0) newBoard[toRow][toCol] = 'Q';
+            if (newBoard[toRow][toCol] === 'p' && toRow === 7) newBoard[toRow][toCol] = 'q';
+            
+            const nextTurn = currentTurn === 'white' ? 'black' : 'white';
+            const newLastMove = { fromRow, fromCol, toRow, toCol };
+            
+            // Проверяем состояние игры
+            const gameState = checkGameState(newBoard, nextTurn === 'white');
+            let isGameOver = false;
+            let winner = null;
+            
+            if (gameState === 'checkmate') {
+                isGameOver = true;
+                winner = currentTurn;
+            } else if (gameState === 'stalemate') {
+                isGameOver = true;
+            }
+            
+            database.ref('rooms/' + roomId).update({
+                board: newBoard,
+                currentTurn: nextTurn,
+                lastMove: newLastMove,
+                gameOver: isGameOver,
+                winner: winner
+            });
+            
+            selectedCell = null;
+            validMoves = [];
+        }
+        
+        function checkGameEnd() {
+            const alertsDiv = document.getElementById('gameAlerts');
+            
+            if (gameOver) {
+                const gameState = checkGameState(board, currentTurn === 'white');
+                
+                if (gameState === 'checkmate') {
+                    const winnerText = currentTurn === 'white' ? '⚫ ЧЁРНЫЕ' : '⚪ БЕЛЫЕ';
+                    alertsDiv.innerHTML = `<div class="checkmate-alert">♚ МАТ! ♚<br><small>Победили ${winnerText}!</small></div>`;
+                } else if (gameState === 'stalemate') {
+                    alertsDiv.innerHTML = `<div class="checkmate-alert">🤝 ПАТ! 🤝<br><small>Ничья!</small></div>`;
+                }
+            } else {
+                const inCheck = isKingInCheck(board, currentTurn === 'white');
+                if (inCheck) {
+                    alertsDiv.innerHTML = '<div class="check-alert">⚠️ ШАХ!</div>';
+                } else {
+                    alertsDiv.innerHTML = '';
+                }
+            }
+        }
+        
+        function renderBoard() {
+            const boardEl = document.getElementById('board');
+            boardEl.innerHTML = '';
+            
+            const kingInCheck = isKingInCheck(board, currentTurn === 'white');
+            const kingPos = kingInCheck ? findKing(board, currentTurn === 'white') : null;
+            
+            for (let row = 0; row < 8; row++) {
+                for (let col = 0; col < 8; col++) {
+                    const cell = document.createElement('div');
+                    cell.className = 'cell ' + ((row + col) % 2 === 0 ? 'white' : 'black');
+                    
+                    if (board[row] && board[row][col]) {
+                        cell.textContent = pieces[board[row][col]];
+                        
+                        // Подсветка короля под шахом
+                        if (kingPos && kingPos.row === row && kingPos.col === col) {
+                            cell.classList.add('in-check');
+                        }
+                    }
+                    
+                    if (selectedCell && selectedCell.row === row && selectedCell.col === col) {
+                        cell.classList.add('selected');
+                    }
+                    
+                    if (validMoves.some(m => m.row === row && m.col === col)) {
+                        cell.classList.add('valid-move');
+                    }
+                    
+                    cell.addEventListener('click', () => handleCellClick(row, col));
+                    boardEl.appendChild(cell);
+                }
+            }
+        }
+        
+        function handleCellClick(row, col) {
+            if (!gameStarted || !roomId || gameOver) return;
+            
+            const piece = board[row] ? board[row][col] : null;
+            
+            if (selectedCell) {
+                if (selectedCell.row === row && selectedCell.col === col) {
+                    selectedCell = null;
+                    validMoves = [];
+                    renderBoard();
+                    return;
+                }
+                
+                if (validMoves.some(m => m.row === row && m.col === col)) {
+                    makeMove(selectedCell.row, selectedCell.col, row, col);
+                    return;
+                }
+            }
+            
+            if (piece) {
+                const isWhitePiece = piece === piece.toUpperCase();
+                const isMyPiece = (playerColor === 'white' && isWhitePiece) ||
+                                 (playerColor === 'black' && !isWhitePiece);
+                const isMyTurn = (playerColor === 'white' && currentTurn === 'white') ||
+                                (playerColor === 'black' && currentTurn === 'black');
+                
+                if (isMyPiece && isMyTurn) {
+                    selectedCell = { row, col };
+                    calculateValidMoves(row, col);
+                    renderBoard();
+                }
+            }
+        }
+        
+        function calculateValidMoves(row, col) {
+            validMoves = [];
+            const piece = board[row][col];
+            if (!piece) return;
+            
+            for (let r = 0; r < 8; r++) {
+                for (let c = 0; c < 8; c++) {
+                    if (isValidMove(row, col, r, c, board)) {
+                        // Проверяем, не оставляет ли ход короля под шахом
+                        const newBoard = simulateMove(board, row, col, r, c);
+                        const isWhite = piece === piece.toUpperCase();
+                        if (!isKingInCheck(newBoard, isWhite)) {
+                            validMoves.push({ row: r, col: c });
+                        }
+                    }
+                }
+            }
+        }
+        
+        function updateStatus() {
+            if (gameOver) return;
+            
+            const statusEl = document.getElementById('status');
+            const isMyTurn = (playerColor === 'white' && currentTurn === 'white') ||
+                           (playerColor === 'black' && currentTurn === 'black');
+            
+            if (isMyTurn) {
+                statusEl.textContent = '🟢 Ваш ход!';
+                statusEl.style.background = '#90EE90';
+            } else {
+                statusEl.textContent = '⏳ Ход папы...';
+                statusEl.style.background = '#FFB6C1';
+            }
+        }
+        
+        function initBoard() {
+            board = JSON.parse(JSON.stringify(initialBoard));
+            renderBoard();
+        }
+        
+        initBoard();
+    </script>
+</body>
+</html>
